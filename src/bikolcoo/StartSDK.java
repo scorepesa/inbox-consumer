@@ -63,7 +63,7 @@ public class StartSDK {
                 // (as an example, we set the last message received timestamp as 2 days ago)
                 Calendar cal = Calendar.getInstance();
                 cal.add(Calendar.DATE, -props.getResendLogTime());
-                producerManager.setProducerRecoveryFromTimestamp(1,
+                producerManager.setProducerRecoveryFromTimestamp(3,
                         cal.getTime().getTime());
                 // with the marketManager you can access various data about the available markets
                 //marketManager = oddsFeed.getMarketDescriptionManager();

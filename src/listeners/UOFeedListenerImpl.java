@@ -51,6 +51,7 @@ public class UOFeedListenerImpl implements OddsFeedListener {
 
     @Override
     public void onBetCancel(OddsFeedSession ofs, BetCancel<SportEvent> bc) {
+
         throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
     }
 

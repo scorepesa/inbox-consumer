@@ -42,7 +42,7 @@ public class Publisher extends MessageQueueEndPoint {
                     builder.priority(50).contentType("text/plain").deliveryMode(1).build(),
                     qMessage.getBytes());
             channel.txCommit();
-        } catch (Exception e) {
+        } catch (IOException e) {
             logger.error(MessageQueueEndPoint.class.getName() + " " + e.getMessage(), e);
         }
     }

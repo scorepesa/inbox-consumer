@@ -399,7 +399,7 @@ public class SaveMatchData implements Runnable {
                     this.sportEvent.getId());
 
             //LongTermEvent t = ((MatchImpl) matchImpl).getTournament();
-            logger.info("Dupe we found instance of Match ...yeey!" + this.sportEvent);
+            logger.info("Dupe we found instance of Match ...yeey! " + this.sportEvent);
             Match match = ((Match) matchImpl);
             String homeTeam = match.getHomeCompetitor().getName(Locale.ENGLISH);
             String awayTeam = match.getAwayCompetitor().getName(Locale.ENGLISH);
@@ -651,7 +651,7 @@ public class SaveMatchData implements Runnable {
             String matchID) {
         return "UPDATE `match` SET  match_id = LAST_INSERT_ID(match_id),"
                 + "start_time = '" + startTime + "',bet_closure = '" + startTime + "',"
-                + "competition_id = " + competitionID + ", modified=NOW() WHERE "
+                + "competition_id = " + competitionID + ", status=1, modified=NOW() WHERE "
                 + "match_id = '" + matchID + "'";
     }
 
