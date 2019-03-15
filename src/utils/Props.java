@@ -122,6 +122,7 @@ public final class Props {
     private String apiHost;
     private int bookMakerId;
     private int resendLogTime;
+    private int env;
 
     /**
      * Constructor.
@@ -229,6 +230,18 @@ public final class Props {
                 if (getMaxConnections() <= 0) {
                     loadErrors.add(String.format(error1,
                             "MaximumConnections"));
+                }
+            }
+            
+            String enVVV = props.getProperty("Env");
+            if (enVVV.isEmpty()) {
+                loadErrors.add(String.format(error1,
+                        "Env"));
+            } else {
+                setEnv(Integer.parseInt(enVVV));
+                if (getMaxConnections() <= 0) {
+                    loadErrors.add(String.format(error1,
+                            "Env"));
                 }
             }
 
@@ -697,6 +710,20 @@ public final class Props {
      */
     public void setResendLogTime(int resendLogTime) {
         this.resendLogTime = resendLogTime;
+    }
+
+    /**
+     * @return the env
+     */
+    public int getEnv() {
+        return env;
+    }
+
+    /**
+     * @param env the env to set
+     */
+    public void setEnv(int env) {
+        this.env = env;
     }
 
 }

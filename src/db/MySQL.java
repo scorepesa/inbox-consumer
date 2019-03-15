@@ -30,7 +30,8 @@ public class MySQL {
         try {
             PoolProperties p = new PoolProperties();
             String connection = "jdbc:mysql://" + Props.getDbHost() + ":" + Props.getDbPort()
-                    + "/" + Props.getDbName();
+                    + "/" + Props.getDbName() + "?allowMultiQueries=true";
+            
             logger.info("jdbc:mysql://" + Props.getDbHost() + ":" + Props.getDbPort() + "/"
                     + Props.getDbName());
             p.setUrl(connection);

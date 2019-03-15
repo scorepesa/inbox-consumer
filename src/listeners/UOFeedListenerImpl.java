@@ -2,8 +2,8 @@ package listeners;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import bikolcoo.SaveMatchData;
-import bikolcoo.SettleMatch;
+import betradar.SaveMatchData;
+import betradar.SettleMatch;
 import com.sportradar.unifiedodds.sdk.OddsFeedListener;
 import com.sportradar.unifiedodds.sdk.OddsFeedSession;
 import com.sportradar.unifiedodds.sdk.entities.SportEvent;
@@ -40,8 +40,8 @@ public class UOFeedListenerImpl implements OddsFeedListener {
     public void onBetSettlement(OddsFeedSession ofs, BetSettlement<SportEvent> bs) {
         logger.info("On onBetSettlement with match id: {} " + bs.toString());
         SettleMatch settleMatch = new SettleMatch(logger, ofs, bs);
-        Thread t = new Thread(settleMatch);
-        t.start();
+        executor.execute(settleMatch);
+       
     }
 
     @Override
@@ -51,8 +51,10 @@ public class UOFeedListenerImpl implements OddsFeedListener {
 
     @Override
     public void onBetCancel(OddsFeedSession ofs, BetCancel<SportEvent> bc) {
-
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        logger.info("On onBetCancel with match id: {} " + bc.toString());
+        SaveMatchData saveMatchData = new SaveMatchData(logger, ofs, bc);
+        executor.execute(saveMatchData);
+        
     }
 
     @Override

@@ -5,12 +5,15 @@
  */
 package db;
 
+import com.mysql.jdbc.exceptions.MySQLTransactionRollbackException;
+import java.sql.BatchUpdateException;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import utils.Logging;
 
@@ -25,15 +28,14 @@ public class DBTransactions {
     public DBTransactions() {
     }
 
-    public static synchronized ArrayList<HashMap<String, String>> query(
-            Connection connection, String query) {
-        Connection conn = null;
+    public static synchronized ArrayList<HashMap<String, String>> query(String query) {
+        Connection conn = MySQL.getConnection();
+        
         Statement stmt = null;
         ResultSet rs = null;
         ArrayList<HashMap<String, String>> results = new ArrayList<>();
         logger.info("Running Query: " + query);
         try {
-            conn = connection;
             stmt = conn.createStatement();
             rs = stmt.executeQuery(query);
             if (rs.next()) {
@@ -87,15 +89,74 @@ public class DBTransactions {
         }
     }
 
-    public static synchronized String update(Connection connection, String query) {
-        Connection conn = null;
+    public static boolean updateMultiple(ArrayList<String> queries) {
+        Connection conn = MySQL.getConnection();
+        Statement stmt = null;
+        ResultSet rs = null;
+        
+        logger.info("Update Query 122334 ");
+
+        try {
+            conn.setAutoCommit(false); 
+            stmt = conn.createStatement();
+            for(String query: queries){
+                //logger.info("BATCH QUERY | " + query); 
+                stmt.addBatch(query); 
+            }
+            
+            int res[] = stmt.executeBatch();
+            conn.commit(); 
+            return res.length > 0;
+        }catch (MySQLTransactionRollbackException ex) {
+            logger.info("MySQLTransactionRollbackException QUERIES DEAD LOCKED " + Arrays.toString(queries.toArray()) );
+            logger.error("MySQLTransactionRollbackException", ex);
+            return false;
+        }catch (BatchUpdateException ex) {
+               logger.info("BatchUpdateException QUERIES DEAD LOCKED " + Arrays.toString(queries.toArray()) );
+               logger.error("BatchUpdateException", ex);
+               return false;
+        } catch (SQLException ex) {
+            logger.error("SQLException " , ex);
+            
+            return false;
+        } catch (Exception ex) {
+            logger.error(" Exception" , ex);
+            return false;
+        } finally {
+            if (rs != null) {
+                try {
+                    rs.close();
+                } catch (SQLException ex) {
+                    logger.fatal(DBTransactions.class.getName() + " " + ex.getMessage());
+                }
+            }
+
+            if (stmt != null) {
+                try {
+                    stmt.close();
+                } catch (SQLException ex) {
+                    logger.fatal(DBTransactions.class.getName() + " " + ex.getMessage());
+                }
+            }
+
+            if (conn != null) {
+                try {
+                    conn.close();
+                } catch (SQLException ex) {
+                    logger.fatal(DBTransactions.class.getName() + " " + ex.getMessage());
+                }
+            }
+        }
+    }
+    
+    public static String update(String query) {
+         Connection conn = MySQL.getConnection();
         Statement stmt = null;
         ResultSet rs = null;
         String autoIncKey = null;
         logger.info("Update Query: " + query);
 
         try {
-            conn = connection;
             stmt = conn.createStatement();
             stmt.executeUpdate(query, Statement.RETURN_GENERATED_KEYS);
 

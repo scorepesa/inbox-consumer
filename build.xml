@@ -7,7 +7,7 @@
 <!-- the Compile on Save feature is turned off for the project. -->
 <!-- You can turn off the Compile on Save (or Deploy on Save) setting -->
 <!-- in the project's Project Properties dialog box.-->
-<project name="BikoFeedsFetcher" default="default" basedir=".">
+<project name="BetradarFeeds" default="default" basedir=".">
     <description>Builds, tests, and runs the project BikoFeedsFetcher.</description>
     <import file="nbproject/build-impl.xml"/>
     <!--
@@ -76,7 +76,7 @@
              minus the .jar extension. It should not have spaces.
              <property name="store.jar.name" value="MyJarName"/>
         -->
-        <property name="store.jar.name" value="BikoFeedsFetcher"/>
+        <property name="store.jar.name" value="BetradarFeedsFetcher"/>
 
 
         <!-- don't edit below this line -->
