@@ -22,7 +22,7 @@ public final class Props {
     /**
      * The properties file.
      */
-    private static final String PROPS_FILE = "conf/bikosports.conf";
+    private static final String PROPS_FILE = "conf/betradar.feeds.conf";
     /**
      * A list of any errors that occurred while loading the properties.
      */
