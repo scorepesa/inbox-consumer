@@ -101,11 +101,12 @@ public class SettleMatch implements Runnable {
                     ps.setString(4, outcome);
                     ps.setString(5, won);
                     ps.setString(6, voidFactor);
+                    ps.setString(7, outcomeId);
                     ps.addBatch();
                     logger.info("Adding result to outcomes oddtype==> " + oddType
                             + " spv => " + specialbetValue + " outcome => " + outcome
                             + " voidFactor =>" + voidFactor
-                            + "won => " + (result.isWinning() ? 1 : 0));
+                            + "won => " + won );
                     outcomesData.add(
                             new String[]{oddType, specialbetValue, outcome, voidFactor, won});
 
@@ -196,8 +197,8 @@ public class SettleMatch implements Runnable {
     private String insertOutcomesQuery() {
         return "INSERT IGNORE INTO `outcome` (sub_type_id,parent_match_id,"
                 + "special_bet_value, created_by,created,modified,status,winning_outcome, "
-                + " is_winning_outcome, void_factor ) "
-                + "VALUES(?,?,?,'BETRADAR',NOW(),NOW(),'0',?, ?, ?)";
+                + " is_winning_outcome, void_factor, outcome_id ) "
+                + "VALUES(?,?,?,'BETRADAR',NOW(),NOW(),'0',?, ?, ?, ?)";
     }
 
     private JSONObject generateJsonMsg(int outcomeSaveID, String oddType,

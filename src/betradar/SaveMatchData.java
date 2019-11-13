@@ -6,10 +6,13 @@
 package betradar;
 
 import com.sportradar.unifiedodds.sdk.OddsFeedSession;
+import com.sportradar.unifiedodds.sdk.entities.BookingStatus;
+import com.sportradar.unifiedodds.sdk.entities.EventStatus;
 import com.sportradar.unifiedodds.sdk.entities.LongTermEvent;
 import com.sportradar.unifiedodds.sdk.entities.Match;
 import com.sportradar.unifiedodds.sdk.entities.SportEvent;
 import com.sportradar.unifiedodds.sdk.entities.Tournament;
+import com.sportradar.unifiedodds.sdk.entities.status.MatchStatus;
 import com.sportradar.unifiedodds.sdk.impl.entities.MatchImpl;
 import com.sportradar.unifiedodds.sdk.oddsentities.BetCancel;
 import com.sportradar.unifiedodds.sdk.oddsentities.BetSettlement;
@@ -40,6 +43,8 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -55,8 +60,9 @@ public class SaveMatchData implements Runnable {
 
     private final  SportEvent sportEvent;
     private final  OddsChange<SportEvent> oddsChange;
-    private  BetSettlement<SportEvent> betSettlement;
-    private  BetCancel<SportEvent> betCancel;
+    private  final BetSettlement<SportEvent> betSettlement;
+    private  final BetCancel<SportEvent> betCancel;
+    private  final BetStop<SportEvent> betStop;
     private static Logging logger;
     private boolean stopbet = false;
     private boolean changefixture = false;
@@ -70,7 +76,9 @@ public class SaveMatchData implements Runnable {
         this.betCancel=null;
         SaveMatchData.logger = logger;
         this.changefixture = false;
-
+        this.betStop = null;
+        this.betSettlement = null;
+ 
     }
     
      public SaveMatchData(Logging logger,
@@ -82,6 +90,8 @@ public class SaveMatchData implements Runnable {
         this.oddsChange = null;
         this.betCancel = bc;
         this.changefixture = false;
+        this.betStop = null;
+        this.betSettlement = null;
 
     }
 
@@ -93,17 +103,21 @@ public class SaveMatchData implements Runnable {
         this.sportEvent = bs.getEvent();
         this.betSettlement = bs;
         this.oddsChange = null;
-         this.changefixture = false;
-         this.betCancel=null;
+        this.changefixture = false;
+        this.betCancel=null;
+        this.betStop = null;
+
     }
 
     public SaveMatchData(Logging logger,
             OddsFeedSession ofs, BetStop<SportEvent> bs) {
         SaveMatchData.logger = logger;
         this.sportEvent = bs.getEvent();
+        this.betStop = bs;
         this.oddsChange = null;
         this.betCancel=null;
-         this.changefixture = false;
+        this.changefixture = false;
+        this.betSettlement = null;
         logger.info("BetStop Event void and cancel bet");
         stopbet = true;
 
@@ -116,40 +130,77 @@ public class SaveMatchData implements Runnable {
         this.oddsChange = null;
         this.changefixture = true;
         this.betCancel=null;
+        this.betStop = null;
+        this.betSettlement=null;
         logger.info("Fixture change Event void and cancel bet");
 
     }
 
     private void stopBet() {
         String parentMatchID = this.getParentMatchId();
-        String sql = "update `match` set bet_closure=now(), modified = now(), "
-                + "status=3, priority=0 where parent_match_id = "
-                + " '" + parentMatchID + "'";
-
-        Connection connection = null;
-        PreparedStatement ps = null, ps2 = null;
-        try {
-            connection = MySQL.getConnection();
-            ps = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
-            boolean done = ps.execute();
-
-        } catch (SQLException sqle) {
-            logger.error("Unables to stop bet : " + parentMatchID, sqle);
-        } finally {
-            try {
-                if (ps != null) {
-                    ps.close();
-                }
-                if (ps2 != null) {
-                    ps2.close();
-                }
-                if (connection != null) {
-                    connection.close();
-                }
-            } catch (SQLException e) {
-                logger.error("Trouble winding up check : ", e);
-            }
+        
+        if(null != this.betStop){
+             
+             MarketStatus marketStatus = this.betStop.getMarketStatus();
+             
+             String groupNames="";            
+             List<String> groupNamesList = this.betStop.getGroups();
+             groupNames = groupNamesList.stream().map((g) -> "'"+g+"', ").reduce(groupNames, String::concat);
+             groupNames = groupNames.substring(0, groupNames.length()-2);
+             
+             Match match = ((Match) sportEvent);
+        
+            String eventStatus = match.getEventStatus().toString();
+            int eventActive = (match.getEventStatus() == EventStatus.Live)?1:0;
+             
+             this.processBetStop(parentMatchID, groupNames, marketStatus.toString(), 
+                     eventStatus, eventActive);
         }
+    }
+    
+    private void processBetStop(String parentMatchId, String groupNames, 
+            String marketStatus, String eventStatus, int eventActive){   
+  
+        
+        logger.info(" BET STOP | PMID "+parentMatchId+" | "
+            + " Groups "+groupNames + " | MKT status " + marketStatus 
+            + " | EventStatus "+ eventStatus + " | EventActive " +eventActive );
+      
+      
+        ArrayList<String> queries = new ArrayList<>();
+       
+        if(groupNames.equals("all")||groupNames.contains("all")){ 
+            
+            String matchUpdate = "update `match` m  set m.bet_closure=now(), m.modified = now(), "
+                 + " m.status=3, m.priority=0  "
+                 + "  active = 0 where m.parent_match_id =  '" + parentMatchId + "'";
+
+            queries.add(matchUpdate);
+            
+            String oddsChnageUpdate = "update event_odd set active = 0 "
+                    + " where parent_match_id = '"+parentMatchId+"'" ;
+            
+             queries.add(oddsChnageUpdate);
+        }else {
+
+            String affectedMarketSQL = " select sub_type_id from odd_type_group "
+                + " where group_name  in ("+groupNames+") ";
+
+            List<HashMap<String, String>> result = DBTransactions.query(affectedMarketSQL);
+
+            if(!result.isEmpty()){
+                result.forEach((record) -> {
+                    queries.add(
+                            "update event_odd lo  set lo.active=0 where  lo.parent_match_id = '"+parentMatchId+"' "
+                             + " and sub_type_id = '"+record.get("sub_type_id")+ "' "
+                    );
+                 });
+            }           
+       }
+
+       DBTransactions.updateMultiple(queries);
+          
+       
     }
 
     private int saveData() {
@@ -167,6 +218,7 @@ public class SaveMatchData implements Runnable {
         } else if (this.oddsChange != null || this.changefixture) {
             logger.info("Preparing to update odd games odds change or "
                     + "fixture change FC => " + this.changefixture);
+                    
             int sportID = insertSport();
             int competitionID = insertCompetition(sportID);
             parentMatchID = insertMatch(competitionID);
@@ -199,6 +251,7 @@ public class SaveMatchData implements Runnable {
             connection = MySQL.getConnection();
             ps = connection.prepareStatement(insertOutcomesQuery(),
                     Statement.RETURN_GENERATED_KEYS);
+            
             for (MarketWithSettlement marketSettlement : this.betSettlement.getMarkets()) {
                 logger.info("Looping through Market ==> " + String.valueOf(marketSettlement));
                 // Then iterate through the result for each outcome (win or loss)
@@ -326,6 +379,8 @@ public class SaveMatchData implements Runnable {
             if (this.oddsChange != null) {
 
                 List<MarketWithOdds> marketOdds = this.oddsChange.getMarkets();
+                
+                boolean handingOver = false;
 
                 for (MarketWithOdds mktOdds : marketOdds) {
                     String marketDescription = mktOdds.getName();
@@ -333,6 +388,10 @@ public class SaveMatchData implements Runnable {
                     logger.info("Received odds information for : " + marketDescription);
                     logger.info("Market status is : " + mktOdds.getStatus());
                     String active =  (mktOdds.getStatus() == MarketStatus.Active) ? "1" : "0";
+                    
+                    if(mktOdds.getStatus() == MarketStatus.HandedOver){
+                        handingOver = true;
+                    }
                     
                     int subTypeId = mktOdds.getId();
                     String parentMatchId = this.getParentMatchId();
@@ -350,8 +409,15 @@ public class SaveMatchData implements Runnable {
                         String outcome = outcomeOdds.getName();
 
                         String outcomeId = outcomeOdds.getId();
-                        Collection<String> specifiers = mktOdds.getSpecifiers().values();
+                        
+                        Map<String, String> specifiersMap = mktOdds.getSpecifiers();
+                        Collection<String> specifiers = specifiersMap.values();
+                        Collection<String> specifierKeys = specifiersMap.keySet();
+                        
+                        
+                        
                         String specialbetValue = String.join(",", specifiers);
+                        String specialOddKey = String.join(",", specifierKeys);
 
                         //Check Check
                         ps2.setString(1, parentMatchID);
@@ -359,7 +425,12 @@ public class SaveMatchData implements Runnable {
                         ps2.setString(3, outcome.replace("'", "''"));
                         ps2.setString(4, oddValue);
                         ps2.setString(5, specialbetValue);
-                        ps2.setString(6, oddValue);
+                        ps2.setString(6, outcomeId);
+                        ps2.setString(7, specialOddKey);
+                        
+                        ps2.setString(8, oddValue);
+                        ps2.setString(9, outcomeId);
+                        ps2.setString(10, specialOddKey);
 
                         ps3.setString(1, parentMatchID);
                         ps3.setString(2, String.valueOf(subTypeId));
@@ -373,17 +444,37 @@ public class SaveMatchData implements Runnable {
 
                     }
 
-                    
 
                 }
+                logger.info("Executing PS 1  Insert Odds QUERY " + parentMatchID + " " + ps.toString());
                 int[] res = ps.executeBatch();
+                logger.info("Executing PS 2  Insert EVENT Odds QUERY " + parentMatchID + " " + ps2.toString());
                 eventOdds = ps2.executeBatch();
+                
                 if (eventOdds != null) {
+                    logger.info("Executing PS 3  Insert Odds HISTORY " + parentMatchID +" " + ps3.toString());
                     ps3.executeBatch();
+                   
+                }
+                MatchImpl match = (MatchImpl)this.sportEvent;
+                
+                if(handingOver && match.getBookingStatus() == BookingStatus.Booked){
+                    logger.info("HANDING OVER | PMID ["+parentMatchID+"] ");
+                    
+                    String matchHandOver = "insert ignore into live_match (match_id, "
+                            + " parent_match_id, home_team, away_team, start_time, game_id, "
+                            + " competition_id, status, instance_id, bet_closure, created_by,"
+                            + " created, priority, modified) select null, parent_match_id, "
+                            + " home_team, away_team, start_time, game_id, competition_id, "
+                            + " status, instance_id, bet_closure, created_by, created, priority, "
+                            + " modified from `match` where parent_match_id='"+parentMatchID+"'";
+                    
+                    DBTransactions.update(matchHandOver);
                 }
             }
 
         } catch (SQLException e) {
+           
             logger.error("Error saving odd types for parent_match_id " + parentMatchID + " "
                     + e.getMessage(), e);
         } finally {
@@ -450,12 +541,23 @@ public class SaveMatchData implements Runnable {
                         + " Home Team =>" + homeTeam + " Away team =>" + awayTeam
                         + " Parent Match ID => " + parentMatchID);
 
-                gameId = this.getGameId();
-                logger.info("Inserting match gameID " + gameId + " parentMatchID " + parentMatchID);
-                String strInsertMatchID = DBTransactions.update(insertMatchQuery(homeTeam, awayTeam,
-                                startTime, gameId,
-                                parentMatchID, competitionID));
-                logger.info("Inserted Match ID " + strInsertMatchID);
+                String strInsertMatchID = null;
+                int trials = 0;
+                
+                while(strInsertMatchID == null){
+                    gameId = this.getGameId();
+                    logger.info("Inserting match gameID " + gameId + " parentMatchID " + parentMatchID);
+                    strInsertMatchID = DBTransactions.update(insertMatchQuery(homeTeam, awayTeam,
+                                    startTime, gameId, parentMatchID, competitionID));
+                    trials++;
+                    logger.info("Trying to  inserted Match ID " + parentMatchID + ", GameId " + gameId + " for the ["+ trials + "] times ");
+                    
+                    if(trials > 1000){
+                        trials = 0;
+                        logger.error("Insert match failed after 1000 trials aborting create match. IAM SAD");
+                        break;
+                    }
+                }
 
             } else {
                 //update match time
@@ -466,14 +568,14 @@ public class SaveMatchData implements Runnable {
             }
 
         } catch (Exception exe) {
-            logger.error("Exception thrown ", exe);
+            logger.error("Exception thrown saving match - MATCH MAY NOT BE CREATED ", exe);
      
 
         }
         return parentMatchID;
     }
 
-    private synchronized int insertCompetition(int sportID) {
+    private int insertCompetition(int sportID) {
         int insertCompetitonID = -1;
         int categoryID;
         try {
@@ -533,7 +635,7 @@ public class SaveMatchData implements Runnable {
         return insertCompetitonID;
     }
 
-    private synchronized int insertSport() {
+    private int insertSport() {
         int insertSportID = -1;
         long betradarSportID;
         String sportName;
@@ -581,32 +683,32 @@ public class SaveMatchData implements Runnable {
         return insertSportID;
     }
 
-    private synchronized String sportExistsQuery(String sportName) {
+    private String sportExistsQuery(String sportName) {
         return "SELECT sport_id, betradar_sport_id FROM sport WHERE "
                 + "sport_name = '" + sportName + "'";
     }
 
-    private synchronized String competitionExistsQuery(String competitionName,
+    private String competitionExistsQuery(String competitionName,
             int sportID, String category) {
         return "SELECT competition_id, category_id FROM competition WHERE "
                 + "competition_name = '" + competitionName + "' AND sport_id = " + sportID + " "
                 + "AND category = '" + category + "' ";
     }
 
-    private synchronized String updateSportIDQuery(String betRadarSportID, int sportID) {
+    private String updateSportIDQuery(String betRadarSportID, int sportID) {
         return "UPDATE sport SET sport_id = LAST_INSERT_ID(sport_id),"
                 + "betradar_sport_id = '" + betRadarSportID + "' WHERE "
                 + "sport_id = '" + sportID + "'";
     }
 
-    private synchronized String updateCompetitonIDQuery(int categoryID,
+    private  String updateCompetitonIDQuery(int categoryID,
             int competitionID) {
         return "UPDATE competition SET competition_id = LAST_INSERT_ID(competition_id),"
                 + "category_id  = " + categoryID + " WHERE "
                 + "competition_id = '" + competitionID + "'";
     }
 
-    private synchronized String insertCategoryQuery(String categoryName, int sportID,
+    private String insertCategoryQuery(String categoryName, int sportID,
             long betRadarCategoryId, String countryCode) {
 
         return "INSERT INTO `category` (category_id,category_name,status,sport_id,"
@@ -617,7 +719,7 @@ public class SaveMatchData implements Runnable {
                 + "LAST_INSERT_ID(category_id)";
     }
 
-    private synchronized String insertCompetitionQuery(String competitionName,
+    private String insertCompetitionQuery(String competitionName,
             String categoryName, int categoryID, int sportID) {
         return "INSERT INTO competition (competition_id,competition_name,category,"
                 + "status,category_id,sport_id,created_by,created,modified) VALUES "
@@ -626,7 +728,7 @@ public class SaveMatchData implements Runnable {
                 + "UPDATE competition_id=LAST_INSERT_ID(competition_id)";
     }
 
-    private synchronized String insertSportQuery(String sportName, String betRadarSportID) {
+    private String insertSportQuery(String sportName, String betRadarSportID) {
         /*return "INSERT INTO `sport` (sport_id,sport_name,created_by,betradar_sport_id,"
          + "created,modified) VALUES (LAST_INSERT_ID(sport_id),'"+sportName+"',"
          + "'BETRADAR',"+betRadarSportID+", now(), now())";*/
@@ -635,29 +737,29 @@ public class SaveMatchData implements Runnable {
                 + "now()) ";
     }
 
-    private  String updateMatchInstanceIDQuery(long threadID, int gameId) {
+    private String updateMatchInstanceIDQuery(long threadID, int gameId) {
         return "UPDATE `match` SET match_id = LAST_INSERT_ID(match_id),"
                 + " instance_id = '" + threadID + "' WHERE  instance_id = 0 AND "
                 + " game_id = '"+gameId+"' AND start_time <  DATE_SUB(NOW(), INTERVAL 1 DAY) LIMIT 1";
     }
 
-    private synchronized String gameIDExistsQuery(long threadID) {
+    private  String gameIDExistsQuery(long threadID) {
         return "SELECT m.match_id, m.game_id FROM `match` m  WHERE "
                 + "instance_id = " + threadID + " ORDER BY match_id LIMIT 1";
     }
 
-    private synchronized String updateMatchGameIDQuery(String matchID) {
+    private String updateMatchGameIDQuery(String matchID) {
         return "UPDATE `match` SET match_id = LAST_INSERT_ID(match_id),"
                 + "game_id = CONCAT(created,'-',game_id), instance_id = 0 WHERE "
                 + "match_id = " + matchID;
     }
 
-    private synchronized String getGameIDQuery() {
+    private String getGameIDQuery() {
         return "SELECT number FROM game_ids WHERE LENGTH(number) > 2 AND number "
                 + "NOT IN (SELECT game_id FROM `match`) LIMIT 1";
     }
 
-    private synchronized String insertMatchQuery(String homeTeam, String awayTeam,
+    private String insertMatchQuery(String homeTeam, String awayTeam,
             String startTime, String gameID, String parentMatchID, int competitionID) {
         return "INSERT INTO `match` (home_team,away_team,start_time,game_id,"
                 + "parent_match_id,competition_id,status,bet_closure,created_by,"
@@ -666,11 +768,11 @@ public class SaveMatchData implements Runnable {
                 + "1,'" + startTime + "','BETRADAR',NOW(),NOW(),0)";
     }
 
-    private synchronized String matchExists(String parentMatchID) {
+    private String matchExists(String parentMatchID) {
         return "SELECT match_id FROM `match` WHERE parent_match_id = '" + parentMatchID + "'";
     }
 
-    private synchronized String updateMatchTimeQuery(String startTime, int competitionID,
+    private String updateMatchTimeQuery(String startTime, int competitionID,
             String matchID) {
         return "UPDATE `match` SET  match_id = LAST_INSERT_ID(match_id),"
                 + "start_time = '" + startTime + "',bet_closure = '" + startTime + "',"
@@ -678,31 +780,32 @@ public class SaveMatchData implements Runnable {
                 + "match_id = '" + matchID + "'";
     }
 
-    private synchronized String insertOddsQuery() {
+    private String insertOddsQuery() {
         return "INSERT IGNORE INTO odd_type (`bet_type_id`,`name`,`sub_type_id`,`created`,"
                 + " `created_by`, `parent_match_id`, live_bet, active) "
                 + " VALUES(LAST_INSERT_ID(bet_type_id),?,?,now(),'BETRADAR', ?, ?, ?)";
     }
 
-    private synchronized String insertEventOddsQuery() {
-        return "INSERT IGNORE INTO event_odd (event_odd_id,parent_match_id,sub_type_id,"
-                + "odd_key,odd_value,max_bet,created, special_bet_value) VALUES "
-                + "(LAST_INSERT_ID(event_odd_id),?,?,?,?,'20000',NOW(), ?) ON DUPLICATE "
-                + "KEY UPDATE odd_value= ?";
+    private String insertEventOddsQuery() {
+        
+        return "INSERT INTO event_odd (event_odd_id,parent_match_id,sub_type_id,"
+                + "odd_key,odd_value,created, special_bet_value, outcome_id, special_bet_key) VALUES "
+                + "(LAST_INSERT_ID(event_odd_id),?,?,?,?,NOW(), ?, ?, ?) ON DUPLICATE "
+                + "KEY UPDATE odd_value= ?, outcome_id=?, special_bet_key=?, modified=now()";
     }
 
-    private synchronized String insertEventOddsHistoryQuery() {
+    private String insertEventOddsHistoryQuery() {
         return "INSERT INTO odds_history (parent_match_id,sub_type_id,odd_key,odd_value,"
                 + "created, modified, special_bet_value) VALUES (?, ?, ?,?,NOW(),NOW(), ?)";
     }
 
-    private synchronized String insertGoalsQuery(String htScore, String ftScore, String parentMatchID) {
+    private String insertGoalsQuery(String htScore, String ftScore, String parentMatchID) {
         return "UPDATE `match` SET match_id = LAST_INSERT_ID(match_id),"
                 + "ht_score='" + htScore + "',ft_score='" + ftScore + "' WHERE "
                 + "parent_match_id = '" + parentMatchID + "'";
     }
 
-    private synchronized String insertOutcomesQuery() {
+    private String insertOutcomesQuery() {
         return "INSERT IGNORE INTO `outcome` (sub_type_id,parent_match_id,"
                 + "special_bet_value, created_by,created,modified,status,winning_outcome, "
                 + " is_winning_outcome, void_factor ) "
@@ -711,7 +814,11 @@ public class SaveMatchData implements Runnable {
 
     private  String getGameId() {
         long localthreadId = Thread.currentThread().getId();
-        int gameID = ThreadLocalRandom.current().nextInt(1000, 99999 + 1);
+        
+        Random randomGenerator = new Random();
+	int gameID = randomGenerator.nextInt(999999) + 1000;
+        
+        //int gameID = ThreadLocalRandom.current().nextInt(1000, 99999 + 1);
         
         String updInstanceID = DBTransactions.update(
                 updateMatchInstanceIDQuery(localthreadId, gameID));
@@ -857,7 +964,7 @@ public class SaveMatchData implements Runnable {
           
     }
 
-    private synchronized JSONObject generateJsonMsg(int outcomeSaveID, String oddType,
+    private JSONObject generateJsonMsg(int outcomeSaveID, String oddType,
             String specialBetValue, String outcomeValue, String voidFactor, String won) {
         JSONObject jObject2 = new JSONObject();
         try {

@@ -55,7 +55,7 @@ public class StartSDK {
                     logger.info("The sdk is ENV selectionsn 2 INTEGRATION");
                      cfgBuilder = OddsFeed.getOddsFeedConfigurationBuilder()
                             .setAccessToken(props.getAccessToken())
-                             .selectIntegration();
+                            .selectIntegration();
                     break;
                 case 1:
                     logger.info("The sdk is ENV selections 1 PRODUCTION ");
@@ -96,10 +96,10 @@ public class StartSDK {
             producerManager.setProducerRecoveryFromTimestamp(3,
                     cal.getTime().getTime());
             // with the marketManager you can access various data about the available markets
-            //marketManager = oddsFeed.getMarketDescriptionManager();
+            marketManager = oddsFeed.getMarketDescriptionManager();
 
             // With the sportsInfoManager helper you can access various data about the ongoing events
-            //sportsInfoManager = oddsFeed.getSportsInfoManager();
+            sportsInfoManager = oddsFeed.getSportsInfoManager();
 
             OddsFeedSession session
                     = builder.setListener(uofli).setMessageInterest(
