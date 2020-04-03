@@ -6,6 +6,7 @@
 package betradar;
 
 import com.sportradar.unifiedodds.sdk.OddsFeedSession;
+import com.sportradar.unifiedodds.sdk.entities.BasicTournament;
 import com.sportradar.unifiedodds.sdk.entities.BookingStatus;
 import com.sportradar.unifiedodds.sdk.entities.EventStatus;
 import com.sportradar.unifiedodds.sdk.entities.LongTermEvent;
@@ -13,6 +14,7 @@ import com.sportradar.unifiedodds.sdk.entities.Match;
 import com.sportradar.unifiedodds.sdk.entities.SportEvent;
 import com.sportradar.unifiedodds.sdk.entities.Tournament;
 import com.sportradar.unifiedodds.sdk.entities.status.MatchStatus;
+import com.sportradar.unifiedodds.sdk.impl.entities.BasicTournamentImpl;
 import com.sportradar.unifiedodds.sdk.impl.entities.MatchImpl;
 import com.sportradar.unifiedodds.sdk.oddsentities.BetCancel;
 import com.sportradar.unifiedodds.sdk.oddsentities.BetSettlement;
@@ -172,15 +174,13 @@ public class SaveMatchData implements Runnable {
         if(groupNames.equals("all")||groupNames.contains("all")){ 
             
             String matchUpdate = "update `match` m  set m.bet_closure=now(), m.modified = now(), "
-                 + " m.status=3, m.priority=0  "
-                 + "  active = 0 where m.parent_match_id =  '" + parentMatchId + "'";
+                 + " m.status=3, m.priority=0 where m.parent_match_id =  '" + parentMatchId + "'";
 
             queries.add(matchUpdate);
             
-            String oddsChnageUpdate = "update event_odd set active = 0 "
-                    + " where parent_match_id = '"+parentMatchId+"'" ;
+            String oddsChnageUpdate = "update event_odd set active = 0  where parent_match_id = '"+parentMatchId+"' and active=1 " ;
             
-             queries.add(oddsChnageUpdate);
+            queries.add(oddsChnageUpdate);
         }else {
 
             String affectedMarketSQL = " select sub_type_id from odd_type_group "
@@ -585,14 +585,28 @@ public class SaveMatchData implements Runnable {
             long betraderCategoryId;
 
             SportEvent matchImpl = StartSDK.sportsInfoManager.getCompetition(urn);
+            String tornament = ""; 
 
             LongTermEvent t = ((MatchImpl) matchImpl).getTournament();
 
-            //if (t instanceof Tournament) {
-            logger.info("Clearly sport event turned to be Tournament .. hhihi");
-            category = ((Tournament) t).getCategory().getName(Locale.ENGLISH);
-            countryCode = ((Tournament) t).getCategory().getCountryCode();
-            betraderCategoryId = ((Tournament) t).getCategory().getId().getId();
+            if (t instanceof Tournament) {
+                logger.info("Clearly sport event turned to be Tournament .. hhihi");
+                category = ((Tournament) t).getCategory().getName(Locale.ENGLISH);
+                countryCode = ((Tournament) t).getCategory().getCountryCode();
+                betraderCategoryId = ((Tournament) t).getCategory().getId().getId();
+                 tornament = ((Tournament) t).getName(Locale.ENGLISH);
+            }else if(t instanceof  BasicTournament){
+                category = ((BasicTournament) t).getCategory().getName(Locale.ENGLISH);
+                countryCode = ((BasicTournament) t).getCategory().getCountryCode();
+                betraderCategoryId = ((BasicTournament) t).getCategory().getId().getId();
+                tornament = ((BasicTournament) t).getName(Locale.ENGLISH);
+            
+            }else{
+                logger.error("Coulf not get categoryName, code rekless abandon");
+                return -1;
+            }
+            
+            
             categoryID = Integer.valueOf(DBTransactions.update(insertCategoryQuery(category, sportID, betraderCategoryId, countryCode))
             );
 
@@ -600,7 +614,7 @@ public class SaveMatchData implements Runnable {
 
             if (categoryID != -1) {
                 //update competition or insert
-                String tornament = ((Tournament) t).getName(Locale.ENGLISH);
+                
                 ArrayList<HashMap<String, String>> competitionExists = DBTransactions.
                         query(competitionExistsQuery(tornament, sportID, category));
                 String strInsertCompetitionID;
@@ -637,22 +651,39 @@ public class SaveMatchData implements Runnable {
 
     private int insertSport() {
         int insertSportID = -1;
-        long betradarSportID;
-        String sportName;
+        long betradarSportID=-1;
+        String sportName = "";
         try {
             SportEvent matchImpl = StartSDK.sportsInfoManager.getCompetition(
                     this.sportEvent.getId());
 
             logger.info("Sport EVENT ID in insertSport ID ==> " + this.sportEvent.getId());
+            
+            if (matchImpl instanceof MatchImpl) {
+                LongTermEvent t = ((MatchImpl) matchImpl).getTournament();
 
-            //if (matchImpl instanceof MatchImpl) {
-            LongTermEvent t = ((MatchImpl) matchImpl).getTournament();
+                if(t instanceof Tournament){
+                    betradarSportID = ((Tournament) t).getSportId().getId();
 
-            betradarSportID = ((Tournament) t).getSportId().getId();
-            sportName = ((Tournament) t).getSport().getName(Locale.ENGLISH);
-            logger.info("Extracted Data : betradarSportID =" + betradarSportID
-                    + " sportName = " + sportName);
+                    sportName = ((Tournament) t).getSport().getName(Locale.ENGLISH);
+                    logger.info("Extracted Data : betradarSportID =" + betradarSportID
+                            + " sportName = " + sportName);
+                }else if(t instanceof  BasicTournament){
+                    LongTermEvent t1 = ((MatchImpl) matchImpl).getTournament();
+                    betradarSportID = ((BasicTournament) t1).getSportId().getId();
 
+                    sportName = ((BasicTournament) t1).getSport().getName(Locale.ENGLISH);
+                    logger.info("Extracted Data : betradarSportID =" + betradarSportID
+                            + " sportName = " + sportName);
+            
+                }
+            }
+            
+            if(sportName.equals("") || betradarSportID == -1){
+                logger.error("Missing sportName form XML - returning BAD CODE");
+                return -1;
+            }
+            
             ArrayList<HashMap<String, String>> sportExists = DBTransactions.query(
                      sportExistsQuery(sportName));
             String strInsertSportID ;
@@ -882,12 +913,11 @@ public class SaveMatchData implements Runnable {
                     + " SET b.total_odd = b.total_odd/s.odd_value,"
                     + " b.raw_possible_win=(b.raw_possible_win/s.odd_value) , "
                     + " b.tax = ((b.raw_possible_win/s.odd_value)-bet_amount) *0.2, "
-                    + " b.possible_win=  (b.raw_possible_win/s.odd_value - (((b.raw_possible_win/s.odd_value)-bet_amount) *0.2) ), "
+                    + " b.possible_win =  if(s.total_games =1, b.bet_amount, (b.raw_possible_win/s.odd_value - (((b.raw_possible_win/s.odd_value)-bet_amount) *0.2) )), "
                     + " s.odd_value=s.odd_value/s.odd_value,"
                     + " bet_pick=-1  WHERE s.parent_match_id = '"+parentMatchId+"' "
                     + " AND  s.bet_pick <> -1 and s.status in (1, 400) and sub_type_id = '"+oddType+"' "
-                    + " and special_bet_value = '"+specialbetValue+"' "
-                    + " and live_bet =1";
+                    + " and special_bet_value = '"+specialbetValue+"' ";
             
             logger.info("BET CANCEL SQL "+ cancelSQL);
             queries.add(cancelSQL);
@@ -918,7 +948,6 @@ public class SaveMatchData implements Runnable {
                 ps.setString(4, "-1");
                 ps.setString(5, "1");
                 ps.setString(6, "0.0");
-                ps.setString(7, "1");
                 boolean success = ps.execute();
                 
                 if (success){
